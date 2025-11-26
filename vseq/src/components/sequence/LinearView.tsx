@@ -57,7 +57,7 @@ export const LinearView = ({
     useEffect(() => {
         if (!containerRef.current) return;
         // Allow selection in both edit and view modes
-        const selectionEnabled = true;
+        // Allow selection in both edit and view modes
 
         const handleKeyDown = (e: KeyboardEvent) => {
             const key = e.key.toUpperCase();
@@ -156,26 +156,28 @@ export const LinearView = ({
                         <div className="flex-1 flex relative">
                             {chunk.seq.split('').map((base, i) => {
                                 const globalPosition = chunk.index + i;
-                                const showCursorBefore = editable && !hasSelection && cursorPosition === globalPosition;
+                                // Show cursor in both edit and view modes if no selection
+                                const showCursorBefore = !hasSelection && cursorPosition === globalPosition;
                                 const isSelected = selectionStart !== null && selectionEnd !== null &&
                                     globalPosition >= selectionStart && globalPosition < selectionEnd;
 
                                 const handleClick = (e: React.MouseEvent) => {
-                                    if (!editable) return;
+                                    // Allow interaction if callbacks are provided, regardless of editable state
+                                    if (!onCursorMove) return;
 
-                                    if (e.shiftKey && onCursorMove && setSelection) {
+                                    if (e.shiftKey && setSelection) {
                                         // Shift+click: extend selection from cursor to clicked position
                                         e.preventDefault();
                                         setSelection(cursorPosition, globalPosition);
                                     } else {
                                         // Normal click: set cursor and clear selection
                                         clearSelection?.();
-                                        onCursorMove?.(globalPosition);
+                                        onCursorMove(globalPosition);
                                     }
                                 };
 
                                 const handleDoubleClick = (e: React.MouseEvent) => {
-                                    if (!editable || !setSelection) return;
+                                    if (!setSelection) return;
                                     e.preventDefault();
 
                                     // Find all consecutive same bases
@@ -205,7 +207,7 @@ export const LinearView = ({
                                             className={`w-4 text-center ${isSelected
                                                 ? 'bg-blue-500/30 text-white'
                                                 : 'text-gray-300'
-                                                } ${editable ? 'cursor-pointer hover:bg-gray-700' : 'select-none'}`}
+                                                } cursor-pointer hover:bg-gray-700 select-none`}
                                             onClick={handleClick}
                                             onDoubleClick={handleDoubleClick}
                                         >
@@ -215,7 +217,7 @@ export const LinearView = ({
                                 );
                             })}
                             {/* Cursor at the end of the chunk */}
-                            {editable && !hasSelection && cursorPosition === chunk.index + chunk.seq.length && (
+                            {!hasSelection && cursorPosition === chunk.index + chunk.seq.length && (
                                 <div className="relative flex items-center">
                                     <div className="absolute -left-0.5 w-0.5 h-4 bg-blue-500 animate-pulse" />
                                 </div>

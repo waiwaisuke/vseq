@@ -7,6 +7,7 @@ import { CircularView } from './CircularView';
 import { LinearMapView } from './LinearMapView';
 import { FeatureList } from './FeatureList';
 import { useSequenceEditor } from '../../hooks/useSequenceEditor';
+import { SelectionInfo } from './SelectionInfo';
 
 export const SequenceViewer = () => {
     const { selectedId, items, updateFileContent } = useFileSystemStore();
@@ -248,7 +249,19 @@ export const SequenceViewer = () => {
                         <LinearMapView data={sequenceData} zoomLevel={zoomLevel} />
                 )}
                 {viewMode === 'features' && <FeatureList data={sequenceData} />}
+
+                {/* Selection Info Panel */}
+                {viewMode === 'seq' && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (
+                    <div className="absolute bottom-4 right-4 shadow-lg z-10">
+                        <SelectionInfo
+                            selectionStart={editor.selectionStart}
+                            selectionEnd={editor.selectionEnd}
+                            sequence={editor.sequence}
+                        />
+                    </div>
+                )}
             </div>
         </div>
+
     );
 };
