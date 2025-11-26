@@ -1,0 +1,32 @@
+Type,Name,Start,End,Strand,Length
+polyA_signal,"SV40 poly(A) signal",130,251,1,122
+primer_bind,"SV40pA-R",167,186,-1,20
+primer_bind,"EBV-rev",221,240,1,20
+primer_bind,"M13 rev",300,316,-1,17
+primer_bind,"M13 Reverse",300,316,-1,17
+primer_bind,"M13/pUC Reverse",313,335,-1,23
+protein_bind,"lac operator",324,340,1,17
+promoter,"lac promoter",348,378,-1,31
+protein_bind,"CAP binding site",393,414,1,22
+primer_bind,"L4440",531,548,-1,18
+rep_origin,"ori",702,1290,-1,589
+primer_bind,"pBR322ori-F",782,801,-1,20
+CDS,"AmpR",1461,2321,-1,861
+primer_bind,"Amp-R",2084,2103,1,20
+promoter,"AmpR promoter",2322,2426,-1,105
+primer_bind,"pRS-marker",2501,2520,-1,20
+enhancer,"CMV enhancer",2692,3071,1,380
+promoter,"CMV promoter",3072,3275,1,204
+primer_bind,"CMV-F",3226,3246,1,21
+primer_bind,"T7",3320,3339,1,20
+promoter,"T7 promoter",3320,3338,1,19
+primer_bind,"BGH-rev",3478,3495,-1,18
+polyA_signal,"bGH poly(A) signal",3484,3708,1,225
+rep_origin,"f1 ori",3754,4182,1,429
+primer_bind,"F1ori-R",3841,3860,-1,20
+primer_bind,"F1ori-F",4051,4072,1,22
+primer_bind,"pBABE 3'",4191,4211,-1,21
+promoter,"SV40 promoter",4196,4525,1,330
+rep_origin,"SV40 ori",4376,4511,1,136
+primer_bind,"SV40pro-F",4438,4457,1,20
+CDS,"PuroR",4581,5180,1,600
