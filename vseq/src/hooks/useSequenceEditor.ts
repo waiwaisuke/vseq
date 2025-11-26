@@ -12,14 +12,18 @@ interface UseSequenceEditorResult {
     cursorPosition: number;
     selectionStart: number | null;
     selectionEnd: number | null;
+    selectionDirection: 'forward' | 'reverse';
     hasSelection: boolean;
     selectedSequence: string;
     canUndo: boolean;
     canRedo: boolean;
     setCursorPosition: (position: number) => void;
-    setSelection: (start: number, end: number) => void;
+    setSelection: (start: number, end: number, direction?: 'forward' | 'reverse') => void;
     clearSelection: () => void;
     deleteSelection: () => void;
+    addFeature: (feature: Omit<Feature, 'id'>) => void;
+    updateFeature: (featureId: string, updates: Partial<Feature>) => void;
+    deleteFeature: (featureId: string) => void;
     insertBase: (base: string) => void;
     deleteBase: () => void;
     backspace: () => void;
@@ -39,6 +43,7 @@ export const useSequenceEditor = (
     const [cursorPosition, setCursorPosition] = useState(0);
     const [selectionStart, setSelectionStart] = useState<number | null>(null);
     const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+    const [selectionDirection, setSelectionDirection] = useState<'forward' | 'reverse'>('forward');
 
     const currentState = history[historyIndex];
     const hasSelection = selectionStart !== null && selectionEnd !== null;
@@ -68,18 +73,19 @@ export const useSequenceEditor = (
     }, [historyIndex]);
 
     // Selection methods
-    const setSelection = useCallback((start: number, end: number) => {
-        // Ensure start is always less than or equal to end
+    const setSelection = useCallback((start: number, end: number, direction: 'forward' | 'reverse' = 'forward') => {
+        // Normalize selection so start is always less than end
         const normalizedStart = Math.min(start, end);
         const normalizedEnd = Math.max(start, end);
         setSelectionStart(normalizedStart);
         setSelectionEnd(normalizedEnd);
-        setCursorPosition(normalizedEnd); // Cursor at end of selection
+        setSelectionDirection(direction);
     }, []);
 
     const clearSelection = useCallback(() => {
         setSelectionStart(null);
         setSelectionEnd(null);
+        setSelectionDirection('forward');
     }, []);
 
     const deleteSelection = useCallback(() => {
@@ -101,6 +107,29 @@ export const useSequenceEditor = (
         setCursorPosition(selectionStart);
         clearSelection();
     }, [hasSelection, selectionStart, selectionEnd, currentState, addToHistory, clearSelection]);
+
+    // Feature management methods
+    const addFeature = useCallback((feature: Omit<Feature, 'id'>) => {
+        const newFeature: Feature = {
+            ...feature,
+            id: crypto.randomUUID(),
+        };
+        const newFeatures = [...currentState.features, newFeature];
+        addToHistory({ sequence: currentState.sequence, features: newFeatures });
+        clearSelection();
+    }, [currentState, addToHistory, clearSelection]);
+
+    const updateFeature = useCallback((featureId: string, updates: Partial<Feature>) => {
+        const newFeatures = currentState.features.map(f =>
+            f.id === featureId ? { ...f, ...updates } : f
+        );
+        addToHistory({ sequence: currentState.sequence, features: newFeatures });
+    }, [currentState, addToHistory]);
+
+    const deleteFeature = useCallback((featureId: string) => {
+        const newFeatures = currentState.features.filter(f => f.id !== featureId);
+        addToHistory({ sequence: currentState.sequence, features: newFeatures });
+    }, [currentState, addToHistory]);
 
     const insertBase = useCallback((base: string) => {
         const upperBase = base.toUpperCase();
@@ -211,6 +240,7 @@ export const useSequenceEditor = (
         cursorPosition,
         selectionStart,
         selectionEnd,
+        selectionDirection,
         selectedSequence,
         hasSelection,
         canUndo: historyIndex > 0,
@@ -219,6 +249,9 @@ export const useSequenceEditor = (
         setSelection,
         clearSelection,
         deleteSelection,
+        addFeature,
+        updateFeature,
+        deleteFeature,
         insertBase,
         deleteBase,
         backspace,

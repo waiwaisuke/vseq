@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useFileSystemStore } from '../../store/useFileSystemStore';
-import { Dna, AlertCircle, Map, FileText, List, ZoomIn, ZoomOut, RotateCcw, Edit3, Eye, Undo2, Redo2, Save } from 'lucide-react';
+import { Dna, AlertCircle, Map, FileText, List, ZoomIn, ZoomOut, RotateCcw, Edit3, Eye, Undo2, Redo2, Save, FlipVertical2, Plus, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { parseGenBank, parseFasta } from '../../lib/parsers';
 import { LinearView } from './LinearView';
 import { CircularView } from './CircularView';
@@ -8,12 +8,23 @@ import { LinearMapView } from './LinearMapView';
 import { FeatureList } from './FeatureList';
 import { useSequenceEditor } from '../../hooks/useSequenceEditor';
 import { SelectionInfo } from './SelectionInfo';
+import { FeatureEditor } from './FeatureEditor';
+import type { Feature } from '../../types';
 
 export const SequenceViewer = () => {
     const { selectedId, items, updateFileContent } = useFileSystemStore();
     const [viewMode, setViewMode] = useState<'seq' | 'map' | 'features'>('seq');
     const [zoomLevel, setZoomLevel] = useState(1.0);
     const [editMode, setEditMode] = useState(false);
+    const [showReverseStrand, setShowReverseStrand] = useState(false);
+    const [featureEditorOpen, setFeatureEditorOpen] = useState(false);
+    const [editingFeature, setEditingFeature] = useState<Feature | undefined>(undefined);
+
+    // Search state
+    const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<{ start: number; end: number }[]>([]);
+    const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
 
     const selectedFile = selectedId ? items[selectedId] : null;
 
@@ -88,6 +99,84 @@ export const SequenceViewer = () => {
         ].join('\n');
     };
 
+    // Feature editor handlers
+    const handleAddFeature = () => {
+        setEditingFeature(undefined);
+        setFeatureEditorOpen(true);
+    };
+
+    const handleEditFeature = (feature: Feature) => {
+        setEditingFeature(feature);
+        setFeatureEditorOpen(true);
+    };
+
+    const handleSaveFeature = (feature: Omit<Feature, 'id'> | Feature) => {
+        if ('id' in feature && feature.id) {
+            // Editing existing feature
+            editor.updateFeature(feature.id, feature);
+        } else {
+            // Adding new feature
+            editor.addFeature(feature as Omit<Feature, 'id'>);
+        }
+    };
+
+    const handleDeleteFeature = () => {
+        if (editingFeature) {
+            editor.deleteFeature(editingFeature.id);
+        }
+    };
+
+    // Search handlers
+    const handleSearch = (query: string) => {
+        setSearchQuery(query);
+        if (!query || !sequenceData) {
+            setSearchResults([]);
+            setCurrentMatchIndex(-1);
+            return;
+        }
+
+        const results: { start: number; end: number }[] = [];
+        const seq = sequenceData.sequence.toUpperCase();
+        const search = query.toUpperCase();
+
+        let pos = seq.indexOf(search);
+        while (pos !== -1) {
+            results.push({ start: pos, end: pos + search.length });
+            pos = seq.indexOf(search, pos + 1);
+        }
+
+        setSearchResults(results);
+        setCurrentMatchIndex(results.length > 0 ? 0 : -1);
+    };
+
+    const nextMatch = () => {
+        if (searchResults.length === 0) return;
+        setCurrentMatchIndex((prev) => (prev + 1) % searchResults.length);
+    };
+
+    const prevMatch = () => {
+        if (searchResults.length === 0) return;
+        setCurrentMatchIndex((prev) => (prev - 1 + searchResults.length) % searchResults.length);
+    };
+
+    const closeSearch = useCallback(() => {
+        setIsSearchOpen(false);
+        setSearchQuery('');
+        setSearchResults([]);
+        setCurrentMatchIndex(-1);
+    }, []);
+
+    // Wrappers to clear search on interaction
+    const handleCursorMove = useCallback((pos: number) => {
+        editor.setCursorPosition(pos);
+        if (searchResults.length > 0) closeSearch();
+    }, [editor.setCursorPosition, searchResults.length, closeSearch]);
+
+    const handleSetSelection = useCallback((start: number, end: number, direction?: 'forward' | 'reverse') => {
+        editor.setSelection(start, end, direction);
+        if (searchResults.length > 0) closeSearch();
+    }, [editor.setSelection, searchResults.length, closeSearch]);
+
     if (!selectedFile) {
         return (
             <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-500">
@@ -113,7 +202,7 @@ export const SequenceViewer = () => {
     return (
         <div className="flex-1 flex flex-col h-full bg-gray-900 overflow-hidden">
             {/* Toolbar */}
-            <div className="h-12 border-b border-gray-800 flex items-center px-4 justify-between bg-gray-900/50 backdrop-blur-sm">
+            <div className="h-12 border-b border-gray-800 flex items-center px-4 justify-between bg-gray-900/50 backdrop-blur-sm relative z-10">
                 <div className="flex items-center space-x-4">
                     <h2 className="font-medium text-gray-200">{sequenceData.name}</h2>
                     <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
@@ -179,6 +268,75 @@ export const SequenceViewer = () => {
                     </button>
                 </div>
 
+                {/* Search Toggle */}
+                <button
+                    onClick={() => setIsSearchOpen(!isSearchOpen)}
+                    className={`p-1.5 rounded-md transition-colors ${isSearchOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                    title="Search Sequence"
+                >
+                    <Search size={16} />
+                </button>
+
+                {/* Search Bar */}
+                {isSearchOpen && (
+                    <div className="absolute top-14 right-4 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-2 flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => handleSearch(e.target.value)}
+                            placeholder="Find sequence..."
+                            className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-blue-500 w-40 font-mono uppercase"
+                            autoFocus
+                        />
+                        <div className="flex items-center gap-1 text-xs text-gray-400 min-w-[3rem] justify-center">
+                            {searchResults.length > 0 ? (
+                                <span>{currentMatchIndex + 1} / {searchResults.length}</span>
+                            ) : searchQuery ? (
+                                <span className="text-red-400">0 / 0</span>
+                            ) : (
+                                <span>0 / 0</span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={prevMatch}
+                                disabled={searchResults.length === 0}
+                                className="p-1 hover:bg-gray-700 rounded disabled:opacity-50"
+                            >
+                                <ChevronUp size={14} />
+                            </button>
+                            <button
+                                onClick={nextMatch}
+                                disabled={searchResults.length === 0}
+                                className="p-1 hover:bg-gray-700 rounded disabled:opacity-50"
+                            >
+                                <ChevronDown size={14} />
+                            </button>
+                        </div>
+                        <div className="w-px h-4 bg-gray-700 mx-1" />
+                        <button
+                            onClick={closeSearch}
+                            className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+                {/* Reverse Strand Toggle (Seq view only) */}
+                {viewMode === 'seq' && (
+                    <button
+                        onClick={() => setShowReverseStrand(!showReverseStrand)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${showReverseStrand
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                            }`}
+                        title="Toggle Reverse Strand"
+                    >
+                        <FlipVertical2 size={16} />
+                        <span>Reverse</span>
+                    </button>
+                )}
+
                 {/* Edit Mode Controls (Seq view only) */}
                 {viewMode === 'seq' && (
                     <div className="flex items-center gap-2">
@@ -221,6 +379,18 @@ export const SequenceViewer = () => {
                                 </button>
                             </>
                         )}
+
+                        {/* Add Feature Button (visible when selection exists) */}
+                        {editor.hasSelection && (
+                            <button
+                                onClick={handleAddFeature}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+                                title="Add Feature from Selection"
+                            >
+                                <Plus size={16} />
+                                <span>Add Feature</span>
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
@@ -228,20 +398,29 @@ export const SequenceViewer = () => {
             {/* Main View Area */}
             <div className="flex-1 overflow-hidden relative">
                 {viewMode === 'seq' && <LinearView
-                    data={editMode ? { ...sequenceData, sequence: editor.sequence, features: editor.features } : sequenceData}
+                    data={{
+                        ...sequenceData,
+                        sequence: editor.sequence,
+                        features: editor.features
+                    }}
                     zoomLevel={zoomLevel}
                     editable={editMode}
                     cursorPosition={editor.cursorPosition}
                     selectionStart={editor.selectionStart}
                     selectionEnd={editor.selectionEnd}
-                    onCursorMove={editor.setCursorPosition}
-                    setSelection={editor.setSelection}
+                    selectionDirection={editor.selectionDirection}
+                    onCursorMove={handleCursorMove}
+                    setSelection={handleSetSelection}
                     clearSelection={editor.clearSelection}
                     onInsertBase={editor.insertBase}
                     onDeleteBase={editor.deleteBase}
                     onBackspace={editor.backspace}
                     onUndo={editor.undo}
                     onRedo={editor.redo}
+                    showReverseStrand={showReverseStrand}
+                    onFeatureClick={handleEditFeature}
+                    searchResults={searchResults}
+                    currentMatchIndex={currentMatchIndex}
                 />}
                 {viewMode === 'map' && (
                     sequenceData.circular ?
@@ -257,11 +436,23 @@ export const SequenceViewer = () => {
                             selectionStart={editor.selectionStart}
                             selectionEnd={editor.selectionEnd}
                             sequence={editor.sequence}
+                            direction={editor.selectionDirection}
                         />
                     </div>
                 )}
             </div>
-        </div>
 
+            {/* Feature Editor Modal */}
+            <FeatureEditor
+                isOpen={featureEditorOpen}
+                onClose={() => setFeatureEditorOpen(false)}
+                onSave={handleSaveFeature}
+                onDelete={editingFeature ? handleDeleteFeature : undefined}
+                initialFeature={editingFeature}
+                selectionStart={editor.selectionStart ?? undefined}
+                selectionEnd={editor.selectionEnd ?? undefined}
+                sequence={editor.sequence}
+            />
+        </div>
     );
 };
