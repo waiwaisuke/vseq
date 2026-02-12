@@ -4,7 +4,7 @@ import { Folder, File, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
 import type { FileSystemItem } from '../../types';
 
 const FileTreeItem = ({ item, level = 0 }: { item: FileSystemItem; level?: number }) => {
-    const { expandedIds, selectedId, toggleFolder, selectItem, items, deleteItem } = useFileSystemStore();
+    const { expandedIds, selectedId, toggleFolder, selectItem, items, deleteItem, setActiveFiles } = useFileSystemStore();
     const isExpanded = expandedIds.has(item.id);
     const isSelected = selectedId === item.id;
     // const hasChildren = item.children && item.children.length > 0;
@@ -13,8 +13,15 @@ const FileTreeItem = ({ item, level = 0 }: { item: FileSystemItem; level?: numbe
         e.stopPropagation();
         if (item.type === 'folder') {
             toggleFolder(item.id);
+            selectItem(item.id);
+        } else {
+            // When clicking a file, select its parent folder (to keep FileList visible)
+            // and set it as the active file for the viewer
+            if (item.parentId) {
+                selectItem(item.parentId);
+            }
+            setActiveFiles([item.id]);
         }
-        selectItem(item.id);
     };
 
     const handleDelete = (e: React.MouseEvent) => {
