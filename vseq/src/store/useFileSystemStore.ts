@@ -5,12 +5,15 @@ interface FileSystemState {
     items: Record<string, FileSystemItem>;
     rootIds: string[];
     selectedId: string | null;
+    activeFileIds: string[]; // Files currently being viewed in sequence viewer
     expandedIds: Set<string>;
 
     // Actions
     createFolder: (name: string, parentId?: string) => void;
     createFile: (name: string, content: string, parentId?: string) => void;
     selectItem: (id: string | null) => void;
+    setActiveFiles: (ids: string[]) => void;
+    toggleActiveFile: (id: string) => void;
     toggleFolder: (id: string) => void;
     deleteItem: (id: string) => void;
     updateFileContent: (id: string, content: string) => void;
@@ -266,6 +269,7 @@ export const useFileSystemStore = create<FileSystemState>((set) => ({
     items: initialItems,
     rootIds: ['root-1'],
     selectedId: null,
+    activeFileIds: [],
     expandedIds: new Set(['root-1']),
 
     createFolder: (name, parentId) => {
@@ -315,6 +319,17 @@ export const useFileSystemStore = create<FileSystemState>((set) => ({
     }),
 
     selectItem: (id) => set({ selectedId: id }),
+
+    setActiveFiles: (ids) => set({ activeFileIds: ids }),
+
+    toggleActiveFile: (id) => set((state) => {
+        const currentIds = state.activeFileIds;
+        if (currentIds.includes(id)) {
+            return { activeFileIds: currentIds.filter(fileId => fileId !== id) };
+        } else {
+            return { activeFileIds: [...currentIds, id] };
+        }
+    }),
 
     toggleFolder: (id) => set((state) => {
         const newExpanded = new Set(state.expandedIds);

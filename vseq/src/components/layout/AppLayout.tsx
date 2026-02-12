@@ -1,6 +1,8 @@
 import React from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { FileList } from './FileList';
+import { ResizablePanel } from './ResizablePanel';
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -13,7 +15,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             <div className="flex flex-1 overflow-hidden">
                 <Sidebar />
                 <main className="flex-1 overflow-hidden relative flex flex-col">
-                    {children}
+                    <ResizablePanel defaultTopHeight={30} minTopHeight={15} minBottomHeight={30}>
+                        <FileList />
+                        {children}
+                    </ResizablePanel>
                 </main>
             </div>
         </div>

@@ -6,13 +6,14 @@ import { LinearView } from './LinearView';
 import { CircularView } from './CircularView';
 import { LinearMapView } from './LinearMapView';
 import { FeatureList } from './FeatureList';
+import { MultiSequenceView } from './MultiSequenceView';
 import { useSequenceEditor } from '../../hooks/useSequenceEditor';
 import { SelectionInfo } from './SelectionInfo';
 import { FeatureEditor } from './FeatureEditor';
 import type { Feature } from '../../types';
 
 export const SequenceViewer = () => {
-    const { selectedId, items, updateFileContent } = useFileSystemStore();
+    const { activeFileIds, items, updateFileContent } = useFileSystemStore();
     const [viewMode, setViewMode] = useState<'seq' | 'map' | 'features'>('seq');
     const [zoomLevel, setZoomLevel] = useState(1.0);
     const [editMode, setEditMode] = useState(false);
@@ -23,10 +24,25 @@ export const SequenceViewer = () => {
     // Search state
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState<{ start: number; end: number }[]>([]);
+    const [searchResults, setSearchResults] = useState<{ fileId?: string; start: number; end: number }[]>([]);
     const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
 
-    const selectedFile = selectedId ? items[selectedId] : null;
+    // Multi-file selection state
+    const [multiSelection, setMultiSelection] = useState<{
+        fileId: string;
+        start: number;
+        end: number;
+        direction: 'forward' | 'reverse';
+    } | null>(null);
+
+    // Determine if we're in multi-file mode
+    const isMultiFileMode = activeFileIds.length > 1;
+    const selectedFile = activeFileIds.length === 1 ? items[activeFileIds[0]] : null;
+
+    // Get all active files for multi-file view
+    const activeFiles = useMemo(() => {
+        return activeFileIds.map(id => items[id]).filter(Boolean);
+    }, [activeFileIds, items]);
 
     const sequenceData = useMemo(() => {
         if (!selectedFile || !selectedFile.content) return null;
@@ -129,21 +145,37 @@ export const SequenceViewer = () => {
     // Search handlers
     const handleSearch = (query: string) => {
         setSearchQuery(query);
-        if (!query || !sequenceData) {
+        if (!query) {
             setSearchResults([]);
             setCurrentMatchIndex(-1);
             return;
         }
 
-        const results: { start: number; end: number }[] = [];
-        const seq = sequenceData.sequence.toUpperCase();
+        const results: { fileId: string; start: number; end: number }[] = [];
         const search = query.toUpperCase();
 
-        let pos = seq.indexOf(search);
-        while (pos !== -1) {
-            results.push({ start: pos, end: pos + search.length });
-            pos = seq.indexOf(search, pos + 1);
-        }
+        // Search in all active files
+        activeFiles.forEach(file => {
+            if (!file.content) return;
+
+            let sequence = '';
+            if (file.name.endsWith('.gb') || file.name.endsWith('.gbk')) {
+                const data = parseGenBank(file.content);
+                sequence = data?.sequence || '';
+            } else if (file.name.endsWith('.fasta') || file.name.endsWith('.fa')) {
+                const data = parseFasta(file.content);
+                sequence = data?.sequence || '';
+            }
+
+            if (!sequence) return;
+
+            const seq = sequence.toUpperCase();
+            let pos = seq.indexOf(search);
+            while (pos !== -1) {
+                results.push({ fileId: file.id, start: pos, end: pos + search.length });
+                pos = seq.indexOf(search, pos + 1);
+            }
+        });
 
         setSearchResults(results);
         setCurrentMatchIndex(results.length > 0 ? 0 : -1);
@@ -177,18 +209,19 @@ export const SequenceViewer = () => {
         if (searchResults.length > 0) closeSearch();
     }, [editor.setSelection, searchResults.length, closeSearch]);
 
-    if (!selectedFile) {
+    // Single file mode: existing behavior
+    if (!isMultiFileMode && (!selectedFile || activeFileIds.length === 0)) {
         return (
             <div className="flex-1 flex items-center justify-center bg-gray-900 text-gray-500">
                 <div className="text-center">
                     <Dna className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                    <p>Select a sequence file to view</p>
+                    <p>Select a file from the list above to view its sequence</p>
                 </div>
             </div>
         );
     }
 
-    if (!sequenceData) {
+    if (!isMultiFileMode && !sequenceData) {
         return (
             <div className="flex-1 flex items-center justify-center bg-gray-900 text-red-400">
                 <div className="text-center">
@@ -204,38 +237,48 @@ export const SequenceViewer = () => {
             {/* Toolbar */}
             <div className="h-12 border-b border-gray-800 flex items-center px-4 justify-between bg-gray-900/50 backdrop-blur-sm relative z-10">
                 <div className="flex items-center space-x-4">
-                    <h2 className="font-medium text-gray-200">{sequenceData.name}</h2>
-                    <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
-                        {sequenceData.type.toUpperCase()} • {sequenceData.sequence.length} bp • {sequenceData.circular ? 'Circular' : 'Linear'}
-                    </span>
+                    {isMultiFileMode ? (
+                        <h2 className="font-medium text-gray-200">
+                            {activeFiles.length} files selected
+                        </h2>
+                    ) : (
+                        <>
+                            <h2 className="font-medium text-gray-200">{sequenceData?.name}</h2>
+                            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">
+                                {sequenceData?.type.toUpperCase()} • {sequenceData?.sequence.length} bp • {sequenceData?.circular ? 'Circular' : 'Linear'}
+                            </span>
+                        </>
+                    )}
                 </div>
 
-                <div className="flex items-center bg-gray-800 rounded-lg p-1 gap-1">
-                    <button
-                        onClick={() => setViewMode('seq')}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'seq' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
-                        title="Sequence Viewer"
-                    >
-                        <FileText size={16} />
-                        <span>Seq</span>
-                    </button>
-                    <button
-                        onClick={() => setViewMode('map')}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'map' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
-                        title="Map Viewer"
-                    >
-                        <Map size={16} />
-                        <span>Map</span>
-                    </button>
-                    <button
-                        onClick={() => setViewMode('features')}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'features' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
-                        title="Feature List"
-                    >
-                        <List size={16} />
-                        <span>List</span>
-                    </button>
-                </div>
+                {!isMultiFileMode && (
+                    <div className="flex items-center bg-gray-800 rounded-lg p-1 gap-1">
+                        <button
+                            onClick={() => setViewMode('seq')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'seq' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Sequence Viewer"
+                        >
+                            <FileText size={16} />
+                            <span>Seq</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('map')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'map' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Map Viewer"
+                        >
+                            <Map size={16} />
+                            <span>Map</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('features')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'features' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Feature List"
+                        >
+                            <List size={16} />
+                            <span>List</span>
+                        </button>
+                    </div>
+                )}
 
                 {/* Zoom Controls */}
                 <div className="flex items-center bg-gray-800 rounded-lg p-1 gap-1">
@@ -323,7 +366,7 @@ export const SequenceViewer = () => {
                     </div>
                 )}
                 {/* Reverse Strand Toggle (Seq view only) */}
-                {viewMode === 'seq' && (
+                {!isMultiFileMode && viewMode === 'seq' && (
                     <button
                         onClick={() => setShowReverseStrand(!showReverseStrand)}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${showReverseStrand
@@ -338,7 +381,7 @@ export const SequenceViewer = () => {
                 )}
 
                 {/* Edit Mode Controls (Seq view only) */}
-                {viewMode === 'seq' && (
+                {!isMultiFileMode && viewMode === 'seq' && (
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setEditMode(!editMode)}
@@ -397,48 +440,61 @@ export const SequenceViewer = () => {
 
             {/* Main View Area */}
             <div className="flex-1 overflow-hidden relative">
-                {viewMode === 'seq' && <LinearView
-                    data={{
-                        ...sequenceData,
-                        sequence: editor.sequence,
-                        features: editor.features
-                    }}
-                    zoomLevel={zoomLevel}
-                    editable={editMode}
-                    cursorPosition={editor.cursorPosition}
-                    selectionStart={editor.selectionStart}
-                    selectionEnd={editor.selectionEnd}
-                    selectionDirection={editor.selectionDirection}
-                    onCursorMove={handleCursorMove}
-                    setSelection={handleSetSelection}
-                    clearSelection={editor.clearSelection}
-                    onInsertBase={editor.insertBase}
-                    onDeleteBase={editor.deleteBase}
-                    onBackspace={editor.backspace}
-                    onUndo={editor.undo}
-                    onRedo={editor.redo}
-                    showReverseStrand={showReverseStrand}
-                    onFeatureClick={handleEditFeature}
-                    searchResults={searchResults}
-                    currentMatchIndex={currentMatchIndex}
-                />}
-                {viewMode === 'map' && (
-                    sequenceData.circular ?
-                        <CircularView data={sequenceData} zoomLevel={zoomLevel} /> :
-                        <LinearMapView data={sequenceData} zoomLevel={zoomLevel} />
-                )}
-                {viewMode === 'features' && <FeatureList data={sequenceData} />}
-
-                {/* Selection Info Panel */}
-                {viewMode === 'seq' && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (
-                    <div className="absolute bottom-4 right-4 shadow-lg z-10">
-                        <SelectionInfo
+                {isMultiFileMode ? (
+                    <MultiSequenceView
+                        files={activeFiles}
+                        zoomLevel={zoomLevel}
+                        searchResults={searchResults}
+                        currentMatchIndex={currentMatchIndex}
+                        selection={multiSelection}
+                        onSelectionChange={setMultiSelection}
+                    />
+                ) : (
+                    <>
+                        {viewMode === 'seq' && sequenceData && <LinearView
+                            data={{
+                                ...sequenceData,
+                                sequence: editor.sequence,
+                                features: editor.features
+                            }}
+                            zoomLevel={zoomLevel}
+                            editable={editMode}
+                            cursorPosition={editor.cursorPosition}
                             selectionStart={editor.selectionStart}
                             selectionEnd={editor.selectionEnd}
-                            sequence={editor.sequence}
-                            direction={editor.selectionDirection}
-                        />
-                    </div>
+                            selectionDirection={editor.selectionDirection}
+                            onCursorMove={handleCursorMove}
+                            setSelection={handleSetSelection}
+                            clearSelection={editor.clearSelection}
+                            onInsertBase={editor.insertBase}
+                            onDeleteBase={editor.deleteBase}
+                            onBackspace={editor.backspace}
+                            onUndo={editor.undo}
+                            onRedo={editor.redo}
+                            showReverseStrand={showReverseStrand}
+                            onFeatureClick={handleEditFeature}
+                            searchResults={searchResults}
+                            currentMatchIndex={currentMatchIndex}
+                        />}
+                        {viewMode === 'map' && sequenceData && (
+                            sequenceData.circular ?
+                                <CircularView data={sequenceData} zoomLevel={zoomLevel} /> :
+                                <LinearMapView data={sequenceData} zoomLevel={zoomLevel} />
+                        )}
+                        {viewMode === 'features' && sequenceData && <FeatureList data={sequenceData} />}
+
+                        {/* Selection Info Panel */}
+                        {viewMode === 'seq' && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (
+                            <div className="absolute bottom-4 right-4 shadow-lg z-10">
+                                <SelectionInfo
+                                    selectionStart={editor.selectionStart}
+                                    selectionEnd={editor.selectionEnd}
+                                    sequence={editor.sequence}
+                                    direction={editor.selectionDirection}
+                                />
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
 
