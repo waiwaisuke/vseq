@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useFileSystemStore } from '../../store/useFileSystemStore';
-import { Dna, AlertCircle, Map, FileText, List, ZoomIn, ZoomOut, RotateCcw, Edit3, Eye, Undo2, Redo2, Save, FlipVertical2, Plus, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Dna, AlertCircle, Map, FileText, List, ZoomIn, ZoomOut, RotateCcw, Edit3, Eye, Undo2, Redo2, Save, FlipVertical2, Plus, Search, ChevronUp, ChevronDown, X, Download, BarChart3, Scissors } from 'lucide-react';
 import { parseGenBank, parseFasta } from '../../lib/parsers';
+import { exportAsGenBank, exportAsFasta, downloadFile } from '../../lib/exporters';
 import { LinearView } from './LinearView';
 import { CircularView } from './CircularView';
 import { LinearMapView } from './LinearMapView';
@@ -10,16 +11,27 @@ import { MultiSequenceView } from './MultiSequenceView';
 import { useSequenceEditor } from '../../hooks/useSequenceEditor';
 import { SelectionInfo } from './SelectionInfo';
 import { FeatureEditor } from './FeatureEditor';
+import { SequenceStats } from './SequenceStats';
+import { RestrictionEnzymePanel } from './RestrictionEnzymePanel';
+import { ORFFinderPanel } from './ORFFinderPanel';
+import type { ORF } from '../../lib/orfFinder';
 import type { Feature } from '../../types';
 
 export const SequenceViewer = () => {
     const { activeFileIds, items, updateFileContent } = useFileSystemStore();
-    const [viewMode, setViewMode] = useState<'seq' | 'map' | 'features'>('seq');
+    const [viewMode, setViewMode] = useState<'seq' | 'map' | 'features' | 'stats' | 'enzymes' | 'orfs'>('seq');
     const [zoomLevel, setZoomLevel] = useState(1.0);
     const [editMode, setEditMode] = useState(false);
     const [showReverseStrand, setShowReverseStrand] = useState(false);
     const [featureEditorOpen, setFeatureEditorOpen] = useState(false);
     const [editingFeature, setEditingFeature] = useState<Feature | undefined>(undefined);
+
+    // Export menu state
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
+    // 6-frame translation state
+    const [translationFrames, setTranslationFrames] = useState<Set<number>>(new Set());
+    const [showTranslationMenu, setShowTranslationMenu] = useState(false);
 
     // Search state
     const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -212,6 +224,45 @@ export const SequenceViewer = () => {
         setCurrentMatchIndex(-1);
     }, []);
 
+    // ORF → CDS feature handler
+    const handleAddOrfAsFeature = useCallback((orf: ORF) => {
+        editor.addFeature({
+            type: 'CDS',
+            start: orf.start + 1, // convert to 1-indexed
+            end: orf.end,
+            strand: orf.strand,
+            label: `ORF ${orf.frame > 0 ? '+' : ''}${orf.frame} (${orf.aaLength} aa)`,
+        });
+    }, [editor]);
+
+    // Export handlers
+    const handleExportGenBank = useCallback(() => {
+        if (!sequenceData) return;
+        const baseName = sequenceData.name || 'sequence';
+        const content = exportAsGenBank(sequenceData, editor.sequence, editor.features);
+        downloadFile(content, `${baseName}.gb`);
+        setIsExportMenuOpen(false);
+    }, [sequenceData, editor.sequence, editor.features]);
+
+    const handleExportFasta = useCallback(() => {
+        if (!sequenceData) return;
+        const baseName = sequenceData.name || 'sequence';
+        const content = exportAsFasta(sequenceData, editor.sequence);
+        downloadFile(content, `${baseName}.fasta`);
+        setIsExportMenuOpen(false);
+    }, [sequenceData, editor.sequence]);
+
+    const handleExportSelectionFasta = useCallback(() => {
+        if (!sequenceData || !editor.hasSelection || editor.selectionStart === null || editor.selectionEnd === null) return;
+        const start = Math.min(editor.selectionStart, editor.selectionEnd);
+        const end = Math.max(editor.selectionStart, editor.selectionEnd);
+        const selectedSeq = editor.sequence.slice(start, end);
+        const name = `${sequenceData.name}_${start + 1}-${end}`;
+        const content = `>${name}\n${selectedSeq}`;
+        downloadFile(content, `${name}.fasta`);
+        setIsExportMenuOpen(false);
+    }, [sequenceData, editor.sequence, editor.selectionStart, editor.selectionEnd, editor.hasSelection]);
+
     // Wrappers to clear search on interaction
     const handleCursorMove = useCallback((pos: number) => {
         editor.setCursorPosition(pos);
@@ -291,6 +342,30 @@ export const SequenceViewer = () => {
                             <List size={16} />
                             <span>List</span>
                         </button>
+                        <button
+                            onClick={() => setViewMode('stats')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'stats' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Sequence Statistics"
+                        >
+                            <BarChart3 size={16} />
+                            <span>Stats</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('enzymes')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'enzymes' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Restriction Enzymes"
+                        >
+                            <Scissors size={16} />
+                            <span>Enzymes</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('orfs')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'orfs' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="ORF Finder"
+                        >
+                            <Dna size={16} />
+                            <span>ORFs</span>
+                        </button>
                     </div>
                 )}
 
@@ -324,6 +399,46 @@ export const SequenceViewer = () => {
                         <RotateCcw size={16} />
                     </button>
                 </div>
+
+                {/* Export Button */}
+                {!isMultiFileMode && sequenceData && (
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                            className={`p-1.5 rounded-md transition-colors ${isExportMenuOpen ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Export Sequence"
+                        >
+                            <Download size={16} />
+                        </button>
+                        {isExportMenuOpen && (
+                            <div className="absolute top-10 right-0 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[200px]">
+                                <button
+                                    onClick={handleExportGenBank}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                >
+                                    Export as GenBank (.gb)
+                                </button>
+                                <button
+                                    onClick={handleExportFasta}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                >
+                                    Export as FASTA (.fasta)
+                                </button>
+                                {editor.hasSelection && (
+                                    <>
+                                        <div className="border-t border-gray-700 my-1" />
+                                        <button
+                                            onClick={handleExportSelectionFasta}
+                                            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                        >
+                                            Export Selection as FASTA
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Search Toggle */}
                 <button
@@ -392,6 +507,93 @@ export const SequenceViewer = () => {
                         <FlipVertical2 size={16} />
                         <span>Reverse</span>
                     </button>
+                )}
+
+                {/* 6-Frame Translation Toggle (Seq view only) */}
+                {!isMultiFileMode && viewMode === 'seq' && (
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowTranslationMenu(!showTranslationMenu)}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${translationFrames.size > 0
+                                ? 'bg-yellow-600 text-white'
+                                : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                }`}
+                            title="6-Frame Translation"
+                        >
+                            <span className="font-mono text-xs font-bold">AA</span>
+                            <span>Frames</span>
+                            {translationFrames.size > 0 && (
+                                <span className="bg-white/20 rounded-full px-1.5 text-xs">{translationFrames.size}</span>
+                            )}
+                        </button>
+                        {showTranslationMenu && (
+                            <div className="absolute top-10 right-0 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-2 min-w-[180px]">
+                                <div className="px-3 py-1 text-xs text-gray-400 uppercase">Forward</div>
+                                {[1, 2, 3].map(frame => (
+                                    <button
+                                        key={frame}
+                                        onClick={() => {
+                                            setTranslationFrames(prev => {
+                                                const next = new Set(prev);
+                                                next.has(frame) ? next.delete(frame) : next.add(frame);
+                                                return next;
+                                            });
+                                        }}
+                                        className={`w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 ${translationFrames.has(frame)
+                                            ? 'text-yellow-300 bg-yellow-500/10'
+                                            : 'text-gray-300 hover:bg-gray-700'
+                                            }`}
+                                    >
+                                        <span className={`w-4 h-4 rounded border text-xs flex items-center justify-center ${translationFrames.has(frame)
+                                            ? 'bg-yellow-500 border-yellow-500 text-black'
+                                            : 'border-gray-600'
+                                            }`}>
+                                            {translationFrames.has(frame) ? '✓' : ''}
+                                        </span>
+                                        Frame +{frame}
+                                    </button>
+                                ))}
+                                <div className="border-t border-gray-700 my-1" />
+                                <div className="px-3 py-1 text-xs text-gray-400 uppercase">Reverse</div>
+                                {[-1, -2, -3].map(frame => (
+                                    <button
+                                        key={frame}
+                                        onClick={() => {
+                                            setTranslationFrames(prev => {
+                                                const next = new Set(prev);
+                                                next.has(frame) ? next.delete(frame) : next.add(frame);
+                                                return next;
+                                            });
+                                        }}
+                                        className={`w-full text-left px-4 py-1.5 text-sm flex items-center gap-2 ${translationFrames.has(frame)
+                                            ? 'text-yellow-300 bg-yellow-500/10'
+                                            : 'text-gray-300 hover:bg-gray-700'
+                                            }`}
+                                    >
+                                        <span className={`w-4 h-4 rounded border text-xs flex items-center justify-center ${translationFrames.has(frame)
+                                            ? 'bg-yellow-500 border-yellow-500 text-black'
+                                            : 'border-gray-600'
+                                            }`}>
+                                            {translationFrames.has(frame) ? '✓' : ''}
+                                        </span>
+                                        Frame {frame}
+                                    </button>
+                                ))}
+                                <div className="border-t border-gray-700 my-1" />
+                                <div className="flex gap-1 px-3 py-1">
+                                    <button
+                                        onClick={() => setTranslationFrames(new Set([1, 2, 3, -1, -2, -3]))}
+                                        className="text-xs text-blue-400 hover:underline"
+                                    >All</button>
+                                    <span className="text-gray-600">|</span>
+                                    <button
+                                        onClick={() => setTranslationFrames(new Set())}
+                                        className="text-xs text-red-400 hover:underline"
+                                    >None</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {/* Edit Mode Controls (Seq view only) */}
@@ -503,6 +705,7 @@ export const SequenceViewer = () => {
                             onFeatureClick={handleEditFeature}
                             searchResults={searchResults}
                             currentMatchIndex={currentMatchIndex}
+                            translationFrames={translationFrames}
                         />}
                         {viewMode === 'map' && sequenceData && (
                             sequenceData.circular ?
@@ -510,6 +713,22 @@ export const SequenceViewer = () => {
                                 <LinearMapView data={sequenceData} zoomLevel={zoomLevel} />
                         )}
                         {viewMode === 'features' && sequenceData && <FeatureList data={sequenceData} />}
+                        {viewMode === 'stats' && sequenceData && (
+                            <SequenceStats
+                                data={sequenceData}
+                                sequence={editor.sequence}
+                                features={editor.features}
+                            />
+                        )}
+                        {viewMode === 'enzymes' && sequenceData && (
+                            <RestrictionEnzymePanel sequence={editor.sequence} />
+                        )}
+                        {viewMode === 'orfs' && sequenceData && (
+                            <ORFFinderPanel
+                                sequence={editor.sequence}
+                                onAddAsFeature={handleAddOrfAsFeature}
+                            />
+                        )}
 
                         {/* Selection Info Panel */}
                         {viewMode === 'seq' && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (

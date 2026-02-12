@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import type { SequenceData, Feature } from '../../types';
 import { getFeatureColor } from '../../lib/featureUtils';
-import { translateDNA } from '../../lib/dnaTranslation';
+import { translateDNA, getReverseComplement } from '../../lib/dnaTranslation';
 
 interface LinearViewProps {
     data: SequenceData;
@@ -23,6 +23,7 @@ interface LinearViewProps {
     selectionDirection?: 'forward' | 'reverse';
     searchResults?: { start: number; end: number }[];
     currentMatchIndex?: number;
+    translationFrames?: Set<number>;
 }
 
 const getComplementBase = (base: string): string => {
@@ -53,7 +54,8 @@ export const LinearView = ({
     onFeatureClick,
     selectionDirection = 'forward',
     searchResults = [],
-    currentMatchIndex = -1
+    currentMatchIndex = -1,
+    translationFrames = new Set()
 }: LinearViewProps) => {
     const { sequence, features } = data;
     const chunkSize = 50; // Bases per row
@@ -70,6 +72,28 @@ export const LinearView = ({
             seq: sequence.slice(i, i + chunkSize),
         });
     }
+
+    // Pre-compute 6-frame translations
+    const frameTranslations = useMemo(() => {
+        if (translationFrames.size === 0) return new Map<number, string>();
+        const result = new Map<number, string>();
+        const upperSeq = sequence.toUpperCase();
+        const revComp = getReverseComplement(upperSeq);
+
+        for (const frame of [1, 2, 3]) {
+            if (translationFrames.has(frame)) {
+                const offset = frame - 1;
+                result.set(frame, translateDNA(upperSeq.slice(offset), 1, false));
+            }
+        }
+        for (const frame of [-1, -2, -3]) {
+            if (translationFrames.has(frame)) {
+                const offset = Math.abs(frame) - 1;
+                result.set(frame, translateDNA(revComp.slice(offset), 1, false));
+            }
+        }
+        return result;
+    }, [sequence, translationFrames]);
 
     // Apply zoom to font size
     const scaledFontSize = 0.75 * zoomLevel;
@@ -490,6 +514,87 @@ export const LinearView = ({
                                     </div>
                                 );
                             })}
+
+                            {/* 6-Frame Translation Tracks */}
+                            {translationFrames.size > 0 && (
+                                <div className="mt-1 space-y-0">
+                                    {[1, 2, 3, -1, -2, -3].filter(f => translationFrames.has(f)).map(frame => {
+                                        const aaSeq = frameTranslations.get(frame);
+                                        if (!aaSeq) return null;
+
+                                        const isForward = frame > 0;
+                                        const offset = Math.abs(frame) - 1;
+                                        const chunkStart = chunk.index;
+                                        const chunkEnd = chunk.index + chunkSize;
+
+                                        const frameColor = isForward
+                                            ? ['text-green-400 bg-green-500/15 border-green-500/30', 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30', 'text-teal-400 bg-teal-500/15 border-teal-500/30'][Math.abs(frame) - 1]
+                                            : ['text-red-400 bg-red-500/15 border-red-500/30', 'text-orange-400 bg-orange-500/15 border-orange-500/30', 'text-rose-400 bg-rose-500/15 border-rose-500/30'][Math.abs(frame) - 1];
+
+                                        const [textColor, bgColor, borderColor] = frameColor.split(' ');
+
+                                        return (
+                                            <div key={`frame-${frame}`} className="flex items-center" style={{ height: '16px' }}>
+                                                <div className={`w-8 text-[9px] ${textColor} font-mono font-bold select-none text-right mr-1`}>
+                                                    {frame > 0 ? `+${frame}` : `${frame}`}
+                                                </div>
+                                                <div className="flex-1 relative" style={{ height: '14px' }}>
+                                                    {aaSeq.split('').map((aa, aaIndex) => {
+                                                        let codonStart: number, codonEnd: number;
+                                                        if (isForward) {
+                                                            codonStart = offset + aaIndex * 3;
+                                                            codonEnd = codonStart + 3;
+                                                        } else {
+                                                            // Reverse frame: codons map to positions from the end
+                                                            const revStart = offset + aaIndex * 3;
+                                                            codonStart = sequence.length - revStart - 3;
+                                                            codonEnd = codonStart + 3;
+                                                        }
+
+                                                        if (codonEnd <= chunkStart || codonStart >= chunkEnd) return null;
+
+                                                        const visStart = Math.max(codonStart, chunkStart);
+                                                        const visEnd = Math.min(codonEnd, chunkEnd);
+                                                        const visOffset = visStart - chunkStart;
+                                                        const visLen = visEnd - visStart;
+                                                        const showLetter = visStart === codonStart;
+                                                        const isStart = aa === 'M';
+                                                        const isStop = aa === '*';
+
+                                                        return (
+                                                            <div
+                                                                key={aaIndex}
+                                                                className={`absolute inline-block ${bgColor} border ${borderColor} rounded-sm ${isStart ? '!bg-green-500/30 !border-green-400/60' : ''} ${isStop ? '!bg-red-500/30 !border-red-400/60' : ''}`}
+                                                                style={{
+                                                                    left: `calc(${visOffset} * 1rem)`,
+                                                                    width: `calc(${visLen} * 1rem)`,
+                                                                    height: '14px',
+                                                                }}
+                                                                title={`Frame ${frame > 0 ? '+' : ''}${frame}: ${aa} (codon ${aaIndex + 1})`}
+                                                            >
+                                                                {showLetter && (
+                                                                    <div
+                                                                        className={`absolute text-[9px] font-mono font-semibold ${isStart ? 'text-green-300' : isStop ? 'text-red-300' : textColor}`}
+                                                                        style={{
+                                                                            left: '50%',
+                                                                            top: '50%',
+                                                                            transform: 'translate(-50%, -50%)',
+                                                                            width: '3rem',
+                                                                            textAlign: 'center',
+                                                                        }}
+                                                                    >
+                                                                        {aa}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
 
                             {/* Amino Acid Track for Selected Sequence */}
                             {hasSelection && selectionStart !== null && selectionEnd !== null && (() => {

@@ -49,7 +49,7 @@ export const MultiSequenceView = ({
     // Character width in pixels (must match font settings)
     // Base width 8.5px at zoom 1.0
     // We use 'ch' units for alignment, so CHAR_WIDTH_ESTIMATE is only used for total width estimation
-    const CHAR_WIDTH_ESTIMATE = 8.5 * zoomLevel;
+    const _CHAR_WIDTH_ESTIMATE = 8.5 * zoomLevel; void _CHAR_WIDTH_ESTIMATE;
     const FONT_SIZE = 14 * zoomLevel;
     const LINE_HEIGHT = 96; // Fixed row height for now, or could scale
 
@@ -75,7 +75,7 @@ export const MultiSequenceView = ({
     const isDragging = useRef(false);
     const dragStart = useRef<{ fileId: string; index: number } | null>(null);
 
-    const getBaseIndex = (e: React.MouseEvent, fileId: string) => {
+    const getBaseIndex = (e: React.MouseEvent, _fileId: string) => { void _fileId;
         if (!charWidth) return 0;
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left;
