@@ -56,3 +56,61 @@ export const describeArc = (x: number, y: number, radius: number, startAngle: nu
     ].join(" ");
     return d;
 };
+
+/**
+ * Describe a filled wedge arc (annular sector) for circular map features.
+ * Returns an SVG path for a filled region between innerRadius and outerRadius.
+ * Optionally adds an arrowhead at the end based on strand direction.
+ */
+export const describeFeatureArc = (
+    cx: number,
+    cy: number,
+    innerRadius: number,
+    outerRadius: number,
+    startAngle: number,
+    endAngle: number,
+    strand: 1 | -1,
+): string => {
+    const angleDiff = endAngle - startAngle;
+    const arrowAngle = Math.min(5, angleDiff * 0.3); // Arrow takes up to 30% or 5 degrees
+
+    if (strand === 1) {
+        // Forward: arrowhead at endAngle
+        const bodyEnd = endAngle - arrowAngle;
+        const outerStart = polarToCartesian(cx, cy, outerRadius, startAngle);
+        const outerEnd = polarToCartesian(cx, cy, outerRadius, bodyEnd);
+        const arrowTip = polarToCartesian(cx, cy, (innerRadius + outerRadius) / 2, endAngle);
+        const innerEnd = polarToCartesian(cx, cy, innerRadius, bodyEnd);
+        const innerStart = polarToCartesian(cx, cy, innerRadius, startAngle);
+
+        const largeArc = (bodyEnd - startAngle) > 180 ? 1 : 0;
+
+        return [
+            `M ${outerStart.x} ${outerStart.y}`,
+            `A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${outerEnd.x} ${outerEnd.y}`,
+            `L ${arrowTip.x} ${arrowTip.y}`,
+            `L ${innerEnd.x} ${innerEnd.y}`,
+            `A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${innerStart.x} ${innerStart.y}`,
+            'Z',
+        ].join(' ');
+    } else {
+        // Reverse: arrowhead at startAngle
+        const bodyStart = startAngle + arrowAngle;
+        const outerStart = polarToCartesian(cx, cy, outerRadius, bodyStart);
+        const outerEnd = polarToCartesian(cx, cy, outerRadius, endAngle);
+        const arrowTip = polarToCartesian(cx, cy, (innerRadius + outerRadius) / 2, startAngle);
+        const innerEnd = polarToCartesian(cx, cy, innerRadius, endAngle);
+        const innerStart = polarToCartesian(cx, cy, innerRadius, bodyStart);
+
+        const largeArc = (endAngle - bodyStart) > 180 ? 1 : 0;
+
+        return [
+            `M ${outerStart.x} ${outerStart.y}`,
+            `A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${outerEnd.x} ${outerEnd.y}`,
+            `L ${innerEnd.x} ${innerEnd.y}`,
+            `A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${innerStart.x} ${innerStart.y}`,
+            `L ${arrowTip.x} ${arrowTip.y}`,
+            'Z',
+        ].join(' ');
+    }
+};

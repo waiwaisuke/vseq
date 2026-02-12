@@ -26,6 +26,8 @@ import { CodonUsagePanel } from './CodonUsagePanel';
 import { FeatureColorSettings } from './FeatureColorSettings';
 import { CloningSimPanel } from './CloningSimPanel';
 import { getReverseComplement } from '../../lib/dnaTranslation';
+import { findAllORFs } from '../../lib/orfFinder';
+import { findCutSites, ENZYME_DB } from '../../lib/restrictionEnzymes';
 import type { ORF } from '../../lib/orfFinder';
 import type { Primer } from '../../lib/primerDesign';
 import type { Feature } from '../../types';
@@ -54,6 +56,10 @@ export const SequenceViewer = () => {
 
     // Feature colors version (for triggering re-render)
     const [, setColorsVersion] = useState(0);
+
+    // Map view overlay toggles
+    const [showEnzymesOnMap, setShowEnzymesOnMap] = useState(false);
+    const [showORFsOnMap, setShowORFsOnMap] = useState(false);
 
     // Search state
     const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -274,6 +280,37 @@ export const SequenceViewer = () => {
             label: primer.name,
         });
     }, [editor]);
+
+    // Map view callbacks
+    const handleNavigateToSequence = useCallback((position: number) => {
+        setViewMode('seq');
+        editor.setCursorPosition(position);
+    }, [editor]);
+
+    const handleMapSelectRange = useCallback((start: number, end: number) => {
+        editor.setSelection(start, end);
+    }, [editor]);
+
+    // Computed overlays for map view (cached)
+    const mapEnzymeSites = useMemo(() => {
+        if (!showEnzymesOnMap || !editor.sequence) return undefined;
+        // Use a subset of common 6-cutters for map overlay
+        const common6Cutters = ENZYME_DB.filter(e => e.recognitionSeq.length === 6);
+        return findCutSites(editor.sequence, common6Cutters);
+    }, [showEnzymesOnMap, editor.sequence]);
+
+    const mapORFs = useMemo(() => {
+        if (!showORFsOnMap || !editor.sequence) return undefined;
+        return findAllORFs(editor.sequence, 100);
+    }, [showORFsOnMap, editor.sequence]);
+
+    // Search results formatted for map view (without fileId)
+    const mapSearchResults = useMemo(() => {
+        if (!searchResults.length || !selectedFile) return undefined;
+        return searchResults
+            .filter(r => r.fileId === selectedFile.id)
+            .map(r => ({ start: r.start, end: r.end }));
+    }, [searchResults, selectedFile]);
 
     // Export handlers
     const handleExportGenBank = useCallback(() => {
@@ -698,6 +735,34 @@ export const SequenceViewer = () => {
                         </button>
                     </div>
                 )}
+                {/* Map View Overlay Toggles */}
+                {!isMultiFileMode && viewMode === 'map' && (
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setShowEnzymesOnMap(!showEnzymesOnMap)}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-colors text-sm font-medium ${showEnzymesOnMap
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                }`}
+                            title="Show Restriction Enzyme Sites"
+                        >
+                            <Scissors size={14} />
+                            <span>Enzymes</span>
+                        </button>
+                        <button
+                            onClick={() => setShowORFsOnMap(!showORFsOnMap)}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-colors text-sm font-medium ${showORFsOnMap
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                                }`}
+                            title="Show Open Reading Frames"
+                        >
+                            <Dna size={14} />
+                            <span>ORFs</span>
+                        </button>
+                    </div>
+                )}
+
                 {/* Reverse Strand Toggle (Seq view only) */}
                 {!isMultiFileMode && viewMode === 'seq' && (
                     <button
@@ -925,8 +990,28 @@ export const SequenceViewer = () => {
                         />}
                         {viewMode === 'map' && sequenceData && (
                             sequenceData.circular ?
-                                <CircularView data={sequenceData} zoomLevel={zoomLevel} /> :
-                                <LinearMapView data={sequenceData} zoomLevel={zoomLevel} />
+                                <CircularView
+                                    data={{ ...sequenceData, sequence: editor.sequence, features: editor.features }}
+                                    zoomLevel={zoomLevel}
+                                    onFeatureClick={handleEditFeature}
+                                    onNavigateToSequence={handleNavigateToSequence}
+                                    onSelectRange={handleMapSelectRange}
+                                    searchResults={mapSearchResults}
+                                    currentMatchIndex={currentMatchIndex}
+                                    showEnzymeSites={mapEnzymeSites}
+                                    showORFs={mapORFs}
+                                /> :
+                                <LinearMapView
+                                    data={{ ...sequenceData, sequence: editor.sequence, features: editor.features }}
+                                    zoomLevel={zoomLevel}
+                                    onFeatureClick={handleEditFeature}
+                                    onNavigateToSequence={handleNavigateToSequence}
+                                    onSelectRange={handleMapSelectRange}
+                                    searchResults={mapSearchResults}
+                                    currentMatchIndex={currentMatchIndex}
+                                    showEnzymeSites={mapEnzymeSites}
+                                    showORFs={mapORFs}
+                                />
                         )}
                         {viewMode === 'features' && sequenceData && <FeatureList data={sequenceData} />}
                         {viewMode === 'stats' && sequenceData && (
@@ -983,7 +1068,7 @@ export const SequenceViewer = () => {
                         )}
 
                         {/* Selection Info Panel */}
-                        {viewMode === 'seq' && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (
+                        {(viewMode === 'seq' || viewMode === 'map') && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (
                             <div className="absolute bottom-4 right-4 shadow-lg z-10">
                                 <SelectionInfo
                                     selectionStart={editor.selectionStart}
