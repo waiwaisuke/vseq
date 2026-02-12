@@ -24,7 +24,7 @@ export const SequenceViewer = () => {
     // Search state
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResults, setSearchResults] = useState<{ fileId?: string; start: number; end: number }[]>([]);
+    const [searchResults, setSearchResults] = useState<{ fileId: string; start: number; end: number }[]>([]);
     const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
 
     // Multi-file selection state
@@ -43,6 +43,20 @@ export const SequenceViewer = () => {
     const activeFiles = useMemo(() => {
         return activeFileIds.map(id => items[id]).filter(Boolean);
     }, [activeFileIds, items]);
+
+    // Resolve the sequence for multi-file selection
+    const multiSelectionSequence = useMemo(() => {
+        if (!multiSelection) return '';
+        const file = items[multiSelection.fileId];
+        if (!file?.content) return '';
+        if (file.name.endsWith('.gb') || file.name.endsWith('.gbk')) {
+            return parseGenBank(file.content)?.sequence || '';
+        }
+        if (file.name.endsWith('.fasta') || file.name.endsWith('.fa')) {
+            return parseFasta(file.content)?.sequence || '';
+        }
+        return '';
+    }, [multiSelection?.fileId, items]);
 
     const sequenceData = useMemo(() => {
         if (!selectedFile || !selectedFile.content) return null;
@@ -441,14 +455,28 @@ export const SequenceViewer = () => {
             {/* Main View Area */}
             <div className="flex-1 overflow-hidden relative">
                 {isMultiFileMode ? (
-                    <MultiSequenceView
-                        files={activeFiles}
-                        zoomLevel={zoomLevel}
-                        searchResults={searchResults}
-                        currentMatchIndex={currentMatchIndex}
-                        selection={multiSelection}
-                        onSelectionChange={setMultiSelection}
-                    />
+                    <>
+                        <MultiSequenceView
+                            files={activeFiles}
+                            zoomLevel={zoomLevel}
+                            searchResults={searchResults}
+                            currentMatchIndex={currentMatchIndex}
+                            selection={multiSelection}
+                            onSelectionChange={setMultiSelection}
+                        />
+
+                        {/* Selection Info Panel for Multi-File Mode */}
+                        {multiSelection && multiSelection.end > multiSelection.start && multiSelectionSequence && (
+                            <div className="absolute bottom-4 right-4 shadow-lg z-10">
+                                <SelectionInfo
+                                    selectionStart={multiSelection.start}
+                                    selectionEnd={multiSelection.end}
+                                    sequence={multiSelectionSequence}
+                                    direction={multiSelection.direction}
+                                />
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <>
                         {viewMode === 'seq' && sequenceData && <LinearView
