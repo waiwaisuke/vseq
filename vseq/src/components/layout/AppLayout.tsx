@@ -6,7 +6,7 @@ import { ResizablePanel } from './ResizablePanel';
 import { useFileSystemStore } from '../../store/useFileSystemStore';
 import { Upload } from 'lucide-react';
 
-const SUPPORTED_EXTENSIONS = ['.gb', '.gbk', '.fasta', '.fa', '.txt'];
+const SUPPORTED_EXTENSIONS = ['.gb', '.gbk', '.fasta', '.fa', '.txt', '.embl', '.dna', '.gff', '.gff3'];
 
 interface AppLayoutProps {
     children: React.ReactNode;

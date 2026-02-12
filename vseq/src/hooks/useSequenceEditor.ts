@@ -21,6 +21,8 @@ interface UseSequenceEditorResult {
     setSelection: (start: number, end: number, direction?: 'forward' | 'reverse') => void;
     clearSelection: () => void;
     deleteSelection: () => void;
+    replaceSelection: (replacement: string) => void;
+    replaceSequence: (newSequence: string) => void;
     addFeature: (feature: Omit<Feature, 'id'>) => void;
     updateFeature: (featureId: string, updates: Partial<Feature>) => void;
     deleteFeature: (featureId: string) => void;
@@ -107,6 +109,23 @@ export const useSequenceEditor = (
         setCursorPosition(selectionStart);
         clearSelection();
     }, [hasSelection, selectionStart, selectionEnd, currentState, addToHistory, clearSelection]);
+
+    const replaceSelection = useCallback((replacement: string) => {
+        if (!hasSelection || selectionStart === null || selectionEnd === null) return;
+        const newSequence =
+            currentState.sequence.slice(0, selectionStart) +
+            replacement +
+            currentState.sequence.slice(selectionEnd);
+        addToHistory({ sequence: newSequence, features: currentState.features });
+        setCursorPosition(selectionStart + replacement.length);
+        clearSelection();
+    }, [hasSelection, selectionStart, selectionEnd, currentState, addToHistory, clearSelection]);
+
+    const replaceSequence = useCallback((newSequence: string) => {
+        addToHistory({ sequence: newSequence, features: currentState.features });
+        setCursorPosition(0);
+        clearSelection();
+    }, [currentState, addToHistory, clearSelection]);
 
     // Feature management methods
     const addFeature = useCallback((feature: Omit<Feature, 'id'>) => {
@@ -249,6 +268,8 @@ export const useSequenceEditor = (
         setSelection,
         clearSelection,
         deleteSelection,
+        replaceSelection,
+        replaceSequence,
         addFeature,
         updateFeature,
         deleteFeature,

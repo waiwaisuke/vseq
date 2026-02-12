@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useFileSystemStore } from '../../store/useFileSystemStore';
 import { Dna, AlertCircle, Map, FileText, List, ZoomIn, ZoomOut, RotateCcw, Edit3, Eye, Undo2, Redo2, Save, FlipVertical2, Plus, Search, ChevronUp, ChevronDown, X, Download, BarChart3, Scissors } from 'lucide-react';
 import { parseGenBank, parseFasta } from '../../lib/parsers';
+import { parseEMBL } from '../../lib/parsersExtra';
 import { exportAsGenBank, exportAsFasta, downloadFile } from '../../lib/exporters';
 import { LinearView } from './LinearView';
 import { CircularView } from './CircularView';
@@ -14,12 +15,24 @@ import { FeatureEditor } from './FeatureEditor';
 import { SequenceStats } from './SequenceStats';
 import { RestrictionEnzymePanel } from './RestrictionEnzymePanel';
 import { ORFFinderPanel } from './ORFFinderPanel';
+import { JumpToPositionDialog } from './JumpToPositionDialog';
+import { SequenceOperationsMenu } from './SequenceOperationsMenu';
+import { KeyboardShortcutsPanel } from './KeyboardShortcutsPanel';
+import { BlastMenu } from './BlastMenu';
+import { DigestSimPanel } from './DigestSimPanel';
+import { PrimerDesignPanel } from './PrimerDesignPanel';
+import { AlignmentPanel } from './AlignmentPanel';
+import { CodonUsagePanel } from './CodonUsagePanel';
+import { FeatureColorSettings } from './FeatureColorSettings';
+import { CloningSimPanel } from './CloningSimPanel';
+import { getReverseComplement } from '../../lib/dnaTranslation';
 import type { ORF } from '../../lib/orfFinder';
+import type { Primer } from '../../lib/primerDesign';
 import type { Feature } from '../../types';
 
 export const SequenceViewer = () => {
     const { activeFileIds, items, updateFileContent } = useFileSystemStore();
-    const [viewMode, setViewMode] = useState<'seq' | 'map' | 'features' | 'stats' | 'enzymes' | 'orfs'>('seq');
+    const [viewMode, setViewMode] = useState<'seq' | 'map' | 'features' | 'stats' | 'enzymes' | 'orfs' | 'digest' | 'primers' | 'align' | 'codons' | 'colors' | 'cloning'>('seq');
     const [zoomLevel, setZoomLevel] = useState(1.0);
     const [editMode, setEditMode] = useState(false);
     const [showReverseStrand, setShowReverseStrand] = useState(false);
@@ -32,6 +45,15 @@ export const SequenceViewer = () => {
     // 6-frame translation state
     const [translationFrames, setTranslationFrames] = useState<Set<number>>(new Set());
     const [showTranslationMenu, setShowTranslationMenu] = useState(false);
+
+    // Jump to position state
+    const [isJumpDialogOpen, setIsJumpDialogOpen] = useState(false);
+
+    // Keyboard shortcuts help
+    const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+
+    // Feature colors version (for triggering re-render)
+    const [, setColorsVersion] = useState(0);
 
     // Search state
     const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -77,6 +99,13 @@ export const SequenceViewer = () => {
         }
         if (selectedFile.name.endsWith('.fasta') || selectedFile.name.endsWith('.fa')) {
             return parseFasta(selectedFile.content);
+        }
+        if (selectedFile.name.endsWith('.embl')) {
+            return parseEMBL(selectedFile.content);
+        }
+        // Try SnapGene (.dna) as GenBank fallback
+        if (selectedFile.name.endsWith('.dna')) {
+            return parseGenBank(selectedFile.content);
         }
         return null;
     }, [selectedFile]);
@@ -235,6 +264,17 @@ export const SequenceViewer = () => {
         });
     }, [editor]);
 
+    // Primer → feature handler
+    const handleAddPrimerAsFeature = useCallback((primer: Primer) => {
+        editor.addFeature({
+            type: 'primer_bind',
+            start: primer.start + 1,
+            end: primer.end,
+            strand: primer.strand,
+            label: primer.name,
+        });
+    }, [editor]);
+
     // Export handlers
     const handleExportGenBank = useCallback(() => {
         if (!sequenceData) return;
@@ -273,6 +313,105 @@ export const SequenceViewer = () => {
         editor.setSelection(start, end, direction);
         if (searchResults.length > 0) closeSearch();
     }, [editor.setSelection, searchResults.length, closeSearch]);
+
+    // Sequence operations handlers
+    const handleReplaceSequence = useCallback((newSeq: string) => {
+        editor.replaceSequence(newSeq);
+    }, [editor]);
+
+    const handleReplaceSelection = useCallback((start: number, end: number, replacement: string) => {
+        editor.setSelection(start, end);
+        editor.replaceSelection(replacement);
+    }, [editor]);
+
+    // Global keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't capture when typing in inputs (unless it's a global shortcut)
+            const target = e.target as HTMLElement;
+            const isInInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+            // Escape always works
+            if (e.key === 'Escape') {
+                if (isJumpDialogOpen) { setIsJumpDialogOpen(false); return; }
+                if (isShortcutsOpen) { setIsShortcutsOpen(false); return; }
+                if (isSearchOpen) { closeSearch(); return; }
+                if (featureEditorOpen) { setFeatureEditorOpen(false); return; }
+                if (editor.hasSelection) { editor.clearSelection(); return; }
+                return;
+            }
+
+            // Ctrl/Cmd shortcuts work even in inputs
+            const mod = e.metaKey || e.ctrlKey;
+
+            if (mod && e.key === 'g') {
+                e.preventDefault();
+                setIsJumpDialogOpen(true);
+                return;
+            }
+            if (mod && e.key === 'f') {
+                e.preventDefault();
+                setIsSearchOpen(true);
+                return;
+            }
+            if (mod && e.key === 's') {
+                e.preventDefault();
+                if (editMode && hasUnsavedChanges) handleSave();
+                return;
+            }
+            if (mod && e.key === 'e') {
+                e.preventDefault();
+                if (!isMultiFileMode) setEditMode(prev => !prev);
+                return;
+            }
+            if (mod && e.key === 'a' && !isInInput) {
+                e.preventDefault();
+                if (editor.sequence.length > 0) {
+                    editor.setSelection(0, editor.sequence.length);
+                }
+                return;
+            }
+            if (mod && e.key === 'c') {
+                if (!editor.hasSelection || editor.selectionStart === null || editor.selectionEnd === null) return;
+                const s = Math.min(editor.selectionStart, editor.selectionEnd);
+                const end = Math.max(editor.selectionStart, editor.selectionEnd);
+                const sel = editor.sequence.slice(s, end);
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    navigator.clipboard.writeText(getReverseComplement(sel));
+                } else {
+                    e.preventDefault();
+                    navigator.clipboard.writeText(sel);
+                }
+                return;
+            }
+
+            // Non-modifier shortcuts (don't fire in inputs)
+            if (isInInput) return;
+
+            if (e.key === '?') {
+                e.preventDefault();
+                setIsShortcutsOpen(true);
+                return;
+            }
+            if (e.key === 'r' || e.key === 'R') {
+                if (!isMultiFileMode && viewMode === 'seq') {
+                    setShowReverseStrand(prev => !prev);
+                }
+                return;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const modes: typeof viewMode[] = ['seq', 'map', 'features', 'stats', 'enzymes', 'orfs', 'digest', 'primers', 'align', 'codons', 'colors', 'cloning'];
+                const idx = modes.indexOf(viewMode);
+                setViewMode(modes[(idx + 1) % modes.length]);
+                return;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isJumpDialogOpen, isShortcutsOpen, isSearchOpen, featureEditorOpen, editor, editMode, hasUnsavedChanges, handleSave, isMultiFileMode, viewMode, closeSearch]);
 
     // Single file mode: existing behavior
     if (!isMultiFileMode && (!selectedFile || activeFileIds.length === 0)) {
@@ -366,6 +505,54 @@ export const SequenceViewer = () => {
                             <Dna size={16} />
                             <span>ORFs</span>
                         </button>
+                        <button
+                            onClick={() => setViewMode('digest')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'digest' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Digestion Simulation"
+                        >
+                            <Scissors size={16} />
+                            <span>Digest</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('primers')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'primers' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Primer Design"
+                        >
+                            <span className="font-mono text-xs font-bold">Pr</span>
+                            <span>Primers</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('align')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'align' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Pairwise Alignment"
+                        >
+                            <span className="font-mono text-xs font-bold">Al</span>
+                            <span>Align</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('codons')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'codons' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Codon Usage"
+                        >
+                            <span className="font-mono text-xs font-bold">Cu</span>
+                            <span>Codons</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('colors')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'colors' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Feature Colors"
+                        >
+                            <span className="font-mono text-xs font-bold">Fc</span>
+                            <span>Colors</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('cloning')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors text-sm font-medium ${viewMode === 'cloning' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                            title="Cloning Simulation"
+                        >
+                            <span className="font-mono text-xs font-bold">Cl</span>
+                            <span>Clone</span>
+                        </button>
                     </div>
                 )}
 
@@ -399,6 +586,16 @@ export const SequenceViewer = () => {
                         <RotateCcw size={16} />
                     </button>
                 </div>
+
+                {/* BLAST Button */}
+                {!isMultiFileMode && sequenceData && (
+                    <BlastMenu
+                        sequence={editor.sequence}
+                        selectionStart={editor.selectionStart}
+                        selectionEnd={editor.selectionEnd}
+                        hasSelection={editor.hasSelection}
+                    />
+                )}
 
                 {/* Export Button */}
                 {!isMultiFileMode && sequenceData && (
@@ -435,6 +632,13 @@ export const SequenceViewer = () => {
                                         </button>
                                     </>
                                 )}
+                                <div className="border-t border-gray-700 my-1" />
+                                <button
+                                    onClick={() => { window.print(); setIsExportMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                >
+                                    Print / PDF
+                                </button>
                             </div>
                         )}
                     </div>
@@ -652,6 +856,18 @@ export const SequenceViewer = () => {
                         )}
                     </div>
                 )}
+
+                {/* Sequence Operations (Seq view, edit mode) */}
+                {!isMultiFileMode && viewMode === 'seq' && editMode && (
+                    <SequenceOperationsMenu
+                        sequence={editor.sequence}
+                        selectionStart={editor.selectionStart}
+                        selectionEnd={editor.selectionEnd}
+                        hasSelection={editor.hasSelection}
+                        onReplaceSequence={handleReplaceSequence}
+                        onReplaceSelection={handleReplaceSelection}
+                    />
+                )}
             </div>
 
             {/* Main View Area */}
@@ -729,6 +945,42 @@ export const SequenceViewer = () => {
                                 onAddAsFeature={handleAddOrfAsFeature}
                             />
                         )}
+                        {viewMode === 'digest' && sequenceData && (
+                            <DigestSimPanel
+                                sequence={editor.sequence}
+                                circular={sequenceData.circular}
+                            />
+                        )}
+                        {viewMode === 'primers' && sequenceData && (
+                            <PrimerDesignPanel
+                                sequence={editor.sequence}
+                                selectionStart={editor.selectionStart}
+                                selectionEnd={editor.selectionEnd}
+                                hasSelection={editor.hasSelection}
+                                onAddAsFeature={handleAddPrimerAsFeature}
+                            />
+                        )}
+                        {viewMode === 'align' && sequenceData && (
+                            <AlignmentPanel sequence={editor.sequence} />
+                        )}
+                        {viewMode === 'codons' && sequenceData && (
+                            <CodonUsagePanel
+                                sequence={editor.sequence}
+                                features={editor.features}
+                            />
+                        )}
+                        {viewMode === 'colors' && sequenceData && (
+                            <FeatureColorSettings
+                                featureTypes={[...new Set(editor.features.map(f => f.type))]}
+                                onColorsChanged={() => setColorsVersion(v => v + 1)}
+                            />
+                        )}
+                        {viewMode === 'cloning' && sequenceData && (
+                            <CloningSimPanel
+                                sequence={editor.sequence}
+                                circular={sequenceData.circular}
+                            />
+                        )}
 
                         {/* Selection Info Panel */}
                         {viewMode === 'seq' && editor.hasSelection && editor.selectionStart !== null && editor.selectionEnd !== null && (
@@ -755,6 +1007,28 @@ export const SequenceViewer = () => {
                 selectionStart={editor.selectionStart ?? undefined}
                 selectionEnd={editor.selectionEnd ?? undefined}
                 sequence={editor.sequence}
+            />
+
+            {/* Jump to Position Dialog */}
+            {sequenceData && (
+                <JumpToPositionDialog
+                    isOpen={isJumpDialogOpen}
+                    onClose={() => setIsJumpDialogOpen(false)}
+                    onJump={(pos) => {
+                        editor.setCursorPosition(pos);
+                    }}
+                    onSelectRange={(start, end) => {
+                        editor.setSelection(start, end);
+                    }}
+                    sequenceLength={editor.sequence.length}
+                    features={editor.features}
+                />
+            )}
+
+            {/* Keyboard Shortcuts Help */}
+            <KeyboardShortcutsPanel
+                isOpen={isShortcutsOpen}
+                onClose={() => setIsShortcutsOpen(false)}
             />
         </div>
     );
