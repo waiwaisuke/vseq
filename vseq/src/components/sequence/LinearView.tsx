@@ -358,9 +358,9 @@ export const LinearView = ({
                                 const offset = startInChunk - chunkStart;
                                 const length = endInChunk - startInChunk;
 
-                                // Use fixed pixel width (w-4 = 1rem = 16px by default in Tailwind)
-                                const left = (offset * 16) + 'px';
-                                const width = (length * 16) + 'px';
+                                // Use rem units to match w-4 (1rem) character width
+                                const left = `calc(${offset} * 1rem)`;
+                                const width = `calc(${length} * 1rem)`;
 
                                 const isForward = feature.strand !== -1;
                                 const colors = getFeatureColor(feature.type);
@@ -448,8 +448,8 @@ export const LinearView = ({
                                             const visibleCodonLength = visibleCodonEnd - visibleCodonStart;
 
                                             // Position for the box (spanning the 3 nucleotides)
-                                            const boxLeft = (visibleCodonOffset * 16) + 'px';
-                                            const boxWidth = (visibleCodonLength * 16) + 'px';
+                                            const boxLeft = `calc(${visibleCodonOffset} * 1rem)`;
+                                            const boxWidth = `calc(${visibleCodonLength} * 1rem)`;
 
                                             // Only show the amino acid letter if this is the start of the codon (or first visible part)
                                             const showLetter = visibleCodonStart === codonStart;
@@ -477,7 +477,7 @@ export const LinearView = ({
                                                                 left: '50%',
                                                                 top: '50%',
                                                                 transform: 'translate(-50%, -50%)',
-                                                                width: '48px', // Full width to center across all 3 nucleotides
+                                                                width: '3rem', // Full width to center across all 3 nucleotides
                                                                 textAlign: 'center',
                                                             }}
                                                         >
@@ -530,8 +530,8 @@ export const LinearView = ({
                                             const visibleCodonLength = visibleCodonEnd - visibleCodonStart;
 
                                             // Position for the box (spanning the 3 nucleotides)
-                                            const boxLeft = (visibleCodonOffset * 16) + 'px';
-                                            const boxWidth = (visibleCodonLength * 16) + 'px';
+                                            const boxLeft = `calc(${visibleCodonOffset} * 1rem)`;
+                                            const boxWidth = `calc(${visibleCodonLength} * 1rem)`;
 
                                             // Only show the amino acid letter if this is the start of the codon (or first visible part)
                                             const showLetter = visibleCodonStart === codonStart;
@@ -559,7 +559,7 @@ export const LinearView = ({
                                                                 left: '50%',
                                                                 top: '50%',
                                                                 transform: 'translate(-50%, -50%)',
-                                                                width: '48px', // Full width to center across all 3 nucleotides
+                                                                width: '3rem', // Full width to center across all 3 nucleotides
                                                                 textAlign: 'center',
                                                             }}
                                                         >
